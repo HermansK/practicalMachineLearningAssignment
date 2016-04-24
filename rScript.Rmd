@@ -1,0 +1,100 @@
+---
+title: "Practical machine learning assignment"
+author: "Kimberly Hermans"
+date: "April 24, 2016"
+output: html_document
+---
+
+#The assignment
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+```{r}
+#Load the required packages
+library(caret)
+library(rattle)
+
+#Read in the data
+masterdata <- read.csv("C:/Users/Kihr/Downloads/pml-training (1).csv", na.strings = c("", "NA", "NULL", " "))
+validationSet <- read.csv("C:/Users/Kihr/Downloads/pml-testing.csv", na.strings = c("", "NA", "NULL", " "))
+
+#view the summary of each column
+summary(masterdata)
+```
+
+
+#Data quality
+In this part we will review the data quality. Looking at the summary of the data, we see that if there are missing values, there are too many. We will therefor remove all columns which show one or more missing values. Furthermore there are unrelevant collumns, highly correlated variables and variables which have no or very little variance. This last part didn't result in any variable drops.
+
+```{r}
+#Remove columns with too much NA values
+masterdata <- masterdata[ , colSums(is.na(masterdata)) == 0]
+
+#Remove irrelevant variables and variables with too little variance
+irrelevant <- c('X', 'user_name', 'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window', 'num_window')
+masterdata <- masterdata[, -which(names(masterdata) %in% irrelevant)]
+
+littleVar <- nearZeroVar(masterdata[sapply(masterdata, is.numeric)], saveMetrics = TRUE)
+masterdata <- masterdata[,littleVar[, 'nzv']==0]
+
+#check correlation between variables too exclude too high correlations (remove correlation over 0.8)
+corrMatrix <- cor(na.omit(masterdata[sapply(masterdata, is.numeric)]))
+
+highCor = findCorrelation(corrMatrix, cutoff = .80, verbose = TRUE)
+masterdata = masterdata[,-highCor]
+
+```
+
+Our modelset now contains only 40 variables and 19622 cases.
+
+#Modelling
+We will split up the data into a train and testset, to test our created model(s). The split was done based on the target variable, 65% in train and 35% in test.
+
+```{r}
+#Split train and testset
+inTrain <- createDataPartition(y=masterdata$classe, p=0.65, list=FALSE)
+trainSet <- masterdata[inTrain,]
+testSet <- masterdata[-inTrain,]
+```
+
+##Decision tree
+```{r}
+#Creating decision tree with caret package and visualise it with rattle
+modFit <- train(classe ~ .,method="rpart",data=trainSet)
+print(modFit$finalModel)
+
+fancyRpartPlot(modFit$finalModel)
+```
+
+Now we have the model, we will validate it via cross-validation:
+```{r}
+#use model to predict cases of the testset
+predTest.tree=predict(modFit,testSet)
+predMatrix = with(testSet,table(predTest.tree,classe))
+
+#Compute the error rate
+sum(diag(predMatrix))/sum(as.vector(predMatrix))
+```
+
+This model is not sufficient enough as the accuracy is not even 50%
+
+##Random forest
+The random forest algorithm usually performs very accurate, on the other hand we will have to watch out for overfitting. Unfortunately random forests do take a long(er) time to run
+
+```{r}
+#Create random forest with caret package
+modFitRf <- train(classe ~ .,method="rf",data=trainSet, ntree=100)
+print(modFitRf$finalModel)
+```
+
+```{r}
+#use model to predict cases of the testset
+predTest.rf=predict(modFitRf,testSet)
+
+#Compute error rat
+predMatrix = with(testSet,table(predTest.rf,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix)) 
+```
+
+As you can see these results are much better and can seen as a proper model.
+This model with accuracy of 99% will be used to predict the 20 cases in the validation set that have to be admitted in Coursera.
+
